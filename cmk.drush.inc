@@ -68,6 +68,7 @@ function cmk_drush_command() {
     ),
     'options' => array(),
   );
+
   $items['cmk-convert-feature'] = array(
     'aliases' => array('cmcf'),
     'callback' => 'cmk_drush_convert_feature',
@@ -78,6 +79,17 @@ function cmk_drush_command() {
     'options' => array(),
   );
 
+  $items['cmk-remove'] = array(
+    'aliases' => array('cmrm'),
+    'callback' => 'cmk_drush_remove',
+    'description' => 'Remove selected exportables from code.',
+    'arguments' => array(
+      'module'    => 'Name of your module.',
+      'type'      => 'Type of export, eg "views" or "page_manager/handlers"',
+      'name'      => 'Name of the export.'
+    ),
+    'options' => array(),
+  );
 
 
   return $items;
@@ -539,4 +551,61 @@ function cmk_drush_convert_feature($module = NULL) {
   }
 
   drush_print(dt('All exportables for @module have been converted. You may need to clear cache now.', array('@module' => $module_name)));
+}
+
+/**
+ * Remove selected exportables from a module.
+ *
+ * @param string $module
+ *   The module to remove the exportables from.
+ * @param string $type_or_ns
+ *   The type or namespace to filter the list by.
+ * @param null $name
+ *   The name of an exportable to filter the list by.
+ *
+ * @return bool
+ *   TRUE on success, FALSE otherwise.
+ */
+function cmk_drush_remove($module = NULL, $type_or_ns = NULL, $name = NULL) {
+  $type = cmk_find_type($type_or_ns);
+
+  if ($type === FALSE && !empty($type_or_ns)) {
+    drush_log(dt('Invalid type specified.'), 'error');
+    return FALSE;
+  }
+
+  if (!$module) {
+    drush_log(dt('Usage: drush cmrm <module> <type> [name]'), 'error');
+    return FALSE;
+  }
+
+  if (!module_exists($module)) {
+    drush_log(dt('Invalid or disabled module.'), 'error');
+    return FALSE;
+  }
+
+  $module_name = cmk_drush_get_module_name($module);
+  $exports = cmk_list($module, $type, $name);
+
+  drush_print(dt('The following exportables have been found:'));
+  cmk_drush_print_exportables_list($exports);
+
+  $all = drush_confirm(dt('Are you sure you would like to remove all displayed exportables from @module?', array('@module' => $module_name)));
+  if (!$all) {
+    drush_log(dt('Command cancelled'), 'success');
+    return FALSE;
+  }
+
+  $files = cmk_remove_from_files($module, $type, $name);
+
+  foreach ($files as $filename => $output) {
+    if (!$output && file_exists($filename)) {
+      unlink($filename);
+      drush_print(dt('Removed @filename from module.', array('@filename' => $filename)));
+    } else {
+      file_put_contents($filename, $output);
+    }
+  }
+
+  drush_print(dt('All selected exportables have been removed. You may need to clear cache now.'));
 }

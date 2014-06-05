@@ -322,6 +322,61 @@ function cmk_revert($module, $type = NULL, $names = array()) {
 }
 
 /**
+ * Removes given exportables from files.
+ *
+ * @param string $module
+ *   The module to remove exportables from.
+ * @param string $type
+ *   The type of exportable to remove.
+ * @param string[] $names
+ *   The names of exportables to remove.
+ *
+ * @return
+ *   array with output or FALSE keyed by filename. FALSE means that the file
+ *   should be deleted by the caller.
+ */
+function cmk_remove_from_files($module, $type, $names = array()) {
+  $remove_exports = cmk_list($module, $type, $names);
+
+  // Save the files to update.
+  $files = array();
+
+  // Load export and export types states.
+  $exports_path = cmk_exports_filepath($module);
+  $cmk_export_types = cmk_load_exports_from_file($exports_path . '/state.php', 'cmk_export_types');
+
+  foreach ($remove_exports as $type => $names) {
+    if (empty($names)) {
+      continue;
+    }
+
+    $path = cmk_type_filepath($module, $type);
+    $cmk_exports = cmk_load_exports_from_file($path . '.php', 'cmk_exports');
+
+    foreach (array_keys($names) as $name) {
+      $files[$path . '/' . $name . '.php'] = FALSE;
+      unset($cmk_exports[$type][$name]);
+    }
+
+    // Remove all files related to the path.
+    if (empty($cmk_exports[$type])) {
+      $files[$path . '.default_hook.php'] = FALSE;
+      unset($cmk_export_types[$type]);
+    }
+    // Update CMK export for this type.
+    $files[$path . '.php'] = cmk_export_cmk_export_states($cmk_exports);
+  }
+
+  // Update CMK export type states.
+  $files[$exports_path . '/state.php'] = cmk_export_cmk_export_type_states($cmk_export_types);
+
+  // Export CMK include file.
+  $files[drupal_get_path('module', $module) . '/' . $module . '.cmk.inc'] = cmk_export_cmk_hooks(array_keys($cmk_export_types), $module);
+
+  return $files;
+}
+
+/**
  * Returns the filepath to the exports directory for a given module.
  *
  * @param string $module
