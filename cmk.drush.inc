@@ -377,30 +377,34 @@ function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
     return FALSE;
   }
 
-  $exportables = cmk_list();
-  cmk_drush_filter_by_status($exportables);
-  if (!isset($exportables[$type][$name])) {
-    drush_log(dt('Unable to find exportable.'), 'error');
-    return FALSE;
-  }
+  $exports = cmk_list();
+  cmk_drush_filter_by_status($exports);
+
+  drush_print(dt('The following exportables have been found:'));
+  cmk_drush_print_exportables_list($exports);
 
   // @todo allow disabled modules.
   $module_name = cmk_drush_get_module_name($module);
-  $all = drush_confirm(dt('Are you sure you would like to export @name to @module and remove it from the database?', array(
-        '@name' => $name,
-        '@module' => $module_name
-      )));
+  $all = drush_confirm(dt('Are you sure you would like to export all displayed exportables to @module and remove them from the database?', array('@module' => $module_name)));
   if (!$all) {
     drush_log(dt('Command cancelled'), 'success');
     return FALSE;
   }
 
-  cmk_drush_export_to_file($module, $type, $name);
+  // @todo Deduplicate this code with cmk-update
+  foreach ($exports as $type => $names) {
+    if (empty($names)) {
+      continue;
+    }
+    // This is slow, but works well.
+    foreach ($names as $name => $description) {
+      cmk_drush_export_to_file($module, $type, $name);
+    }
+    // @todo Use something different here that just removes from the DB?
+    cmk_revert($module, $type, array_keys($names));
+  }
 
-  // @todo Use something different here that just removes from the DB?
-  cmk_revert($module, $type, array($name));
-
-  drush_print(dt('You may need to clear cache now.'));
+  drush_print(dt('All exportables have been exported and reverted. You may need to clear cache now.'));
   return TRUE;
 }
 
