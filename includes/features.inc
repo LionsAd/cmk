@@ -51,12 +51,13 @@ function features_cmk_export_status($type, $names) {
   foreach ($names as $name) {
     if (isset($exports[$type][$name])) {
       // @todo Determine overridden state here.
-      $export_states[$name] = t('In code (undefined)');
+      $export_states[$name]['status'] = t('In code (undefined)');
+      $export_states[$name]['module'] = implode(',', $exports[$type][$name]);
       foreach ($exports[$type][$name] as $module) {
         $modules[$module][$name] = $name;
       }
     } else {
-      $export_states[$name] = t('Normal');
+      $export_states[$name]['status'] = t('Normal');
     }
   }
 
@@ -67,10 +68,10 @@ function features_cmk_export_status($type, $names) {
       $normal_name_state = isset($normal_state[$name]) ? serialize($normal_state[$name]) : '';
       $code_name_state = isset($code_state[$name]) ? serialize($code_state[$name]) : '';
       if ($normal_name_state == $code_name_state) {
-        $export_states[$name] = t('Default');
+        $export_states[$name]['status'] = t('Default');
       }
       else {
-        $export_states[$name] = t('Overridden');
+        $export_states[$name]['status'] = t('Overridden');
       }
     }
   }

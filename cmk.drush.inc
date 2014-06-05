@@ -157,6 +157,8 @@ function cmk_drush_get_namespace_title($namespace) {
  */
 function cmk_drush_print_exportables_list($list) {
   $reverse_namespaces = cmk_reverse_namespaces();
+  $all_exports = cmk_get_all_exports();
+
   foreach ($list as $type => $exports) {
     if (empty($exports)) {
       continue;
@@ -167,16 +169,31 @@ function cmk_drush_print_exportables_list($list) {
     $export_statuses = cmk_export_status($type, array_keys($exports));
 
     foreach ($exports as $name => $title) {
-      $export_status = isset($export_statuses[$name]) ? $export_statuses[$name] : t('Undefined');
+      $export_status = isset($export_statuses[$name]) ?
+        $export_statuses[$name] :
+        array(
+          'status' => t('Undefined'),
+        );
 
-      if ($export_status == dt('Normal')) {
+      if ($export_status['status'] == dt('Normal')) {
         $status = shellColours::getColouredOutput(dt('In database'), 'blue');
       }
-      elseif ($export_status == dt('Default')) {
+      elseif ($export_status['status'] == dt('Default')) {
         $status = shellColours::getColouredOutput(dt('In code'), 'light_green');
       }
       else {
-        $status = shellColours::getColouredOutput($export_status, 'red');
+        $status = shellColours::getColouredOutput($export_status['status'], 'red');
+      }
+
+      $module = '';
+      if (!empty($export_status['module'])) {
+        $module = $export_status['module'];
+      }
+      if (!empty($all_exports[$type][$name])) {
+        $module = shellColours::getColouredOutput(implode(', ', $all_exports[$type][$name]), 'green');
+        if (count($all_exports[$type][$name]) > 1) {
+          $module .= shellColours::getColouredOutput(' -- Double Export !!!', 'red');
+        }
       }
 
       $row = array();
@@ -184,9 +201,10 @@ function cmk_drush_print_exportables_list($list) {
       $row[] = $name;
       $row[] = $title;
       $row[] = $status;
+      $row[] = $module;
       $rows[] = $row;
     }
-    drush_print_table($rows, FALSE, array(2, 50, 50, 30));
+    drush_print_table($rows, FALSE, array(2, 50, 50, 30, 30));
   }
 }
 

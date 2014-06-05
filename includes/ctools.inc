@@ -45,7 +45,10 @@ function ctools_cmk_export_status($type, $names) {
   foreach ($names as $name) {
     $object = ctools_export_crud_load($type, $name);
     if (!empty($object->type)) {
-      $export_states[$name] = $object->type;
+      $export_states[$name]['status'] = $object->type;
+      if (!empty($object->export_module)) {
+        $export_states[$name]['module'] = $object->export_module;
+      }
     }
   }
 
