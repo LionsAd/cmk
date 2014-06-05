@@ -125,13 +125,19 @@ function cmk_get_export_modules() {
 
   $module_data = system_rebuild_module_data();
   foreach ($module_data as $name => $module) {
-    if (file_exists(dirname($module->filename) . '/' . $name . '.cmk.inc')) {
+    if ($module->status && file_exists(dirname($module->filename) . '/' . $name . '.cmk.inc')) {
       $modules[$name] = $name;
     }
   }
   return $modules;
 }
 
+/**
+ * Returns all exports managed by CMK.
+ *
+ * @return array($type => array($name => array($module => $module)))
+ *   Returns a list of $type, $name, $module tuples of active exports.
+ */
 function cmk_get_all_exports() {
   $all_exports = &drupal_static(__FUNCTION__, array());
 

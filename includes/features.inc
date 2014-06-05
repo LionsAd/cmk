@@ -46,17 +46,46 @@ function features_cmk_type_info($type) {
 function features_cmk_export_status($type, $names) {
   $exports = cmk_get_all_exports();
   $export_states = array();
+  $modules = array();
 
   foreach ($names as $name) {
     if (isset($exports[$type][$name])) {
       // @todo Determine overridden state here.
       $export_states[$name] = t('In code (undefined)');
+      foreach ($exports[$type][$name] as $module) {
+        $modules[$module][$name] = $name;
+      }
     } else {
       $export_states[$name] = t('Normal');
     }
   }
 
+  foreach ($modules as $module => $check_names) {
+    $normal_state = _features_cmk_features_get_normal($module, $type, array_keys($check_names));
+    $code_state = cmk_load_exports($module, $type);
+    foreach ($check_names as $name) {
+      $normal_name_state = isset($normal_state[$name]) ? serialize($normal_state[$name]) : '';
+      $code_name_state = isset($code_state[$name]) ? serialize($code_state[$name]) : '';
+      if ($normal_name_state == $code_name_state) {
+        $export_states[$name] = t('Default');
+      }
+      else {
+        $export_states[$name] = t('Overridden');
+      }
+    }
+  }
+
   return $export_states;
+}
+
+function _features_cmk_features_get_normal($module, $type, $names) {
+  $code = features_cmk_export_to_code($module, $type, $names);
+  if (!empty($code)) {
+    eval(current($code));
+    if (isset($cmk_export)) {
+      return $cmk_export;
+    }
+  }
 }
 
 /**
@@ -74,9 +103,13 @@ function features_cmk_export_to_code($module, $type, $name) {
   // features just adds dependencies.
   $module_name = $module;
 
-  $data = array(
-    $name,
-  );
+  if (is_array($name)) {
+    $data = $name;
+  } else {
+    $data = array(
+      $name,
+    );
+  }
 
   $export = array();
   $export_function = features_hook($type, 'features_export');
