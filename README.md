@@ -36,8 +36,14 @@ To get started, the easiest is to check the existing drush commands:
 ### Notes
 
 * Just enabling a module with CMK exports does nothing for things that already exist in the database.
- * It is needed to explicitly _revert_ the module or some components of it. (e.g. field\_base, field\_instance)
- * This is done to give the developer control over the process of what to revert when.
+* It is needed to explicitly _revert_ the module or some components of it. (e.g. field\_base, field\_instance)
+* This is done to give the developer control over the process of what to revert when.
+
+### Options
+
+* You can add --status=code,db,overridden or --status=c,d,o to filter the list by status, e.g. --status=d.
+
+This is useful when you want to export all non-exported exportables to a module, potentially filtered by type.
 
 ## Drush commands
 
@@ -73,6 +79,20 @@ $ drush cme falcon_config field_group 'group_a|node|article|form'
 Are you sure you would like to export group_a|node|article|form to Falcon Config and remove it from the database? (y/n): y
 Wrote group_a|node|article|form to sites/all/modules/custom/falcon_config/exports/field_group/field_group/group_a|node|article|form.php.
 You may need to clear cache now.
+````
+
+#### Multiple exporting
+
+````
+$ drush cme falcon_config --status=d field_instance
+The following exportables have been found:
+Features field_instance -- features/field_instance
+     node-article-field_description                     node-article-field_description                       Undefined           
+     node-article-field_image                           node-article-field_image                             Undefined
+Are you sure you would like to export all selected exportables to Falcon Config and remove them from the database? (y/n): y
+Wrote node-article-field_description to sites/all/modules/custom/falcon_config/exports/features/field_instance/node-article-field_description.php.
+Wrote node-article-field_image to sites/all/modules/custom/falcon_config/exports/features/field_instance/node-article-field_image.php.
+All exportables have been exported and reverted. You may need to clear cache now.
 ````
 
 ### Updating - cmk-update ###
