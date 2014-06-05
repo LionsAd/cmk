@@ -208,7 +208,7 @@ function cmk_drush_print_exportables_list($list) {
       $row[] = $module;
       $rows[] = $row;
     }
-    drush_print_table($rows, FALSE, array(2, 50, 50, 30, 30));
+    drush_print_table($rows, FALSE, array(2, 50, 50, 30, 40));
   }
 }
 
@@ -359,9 +359,8 @@ function cmk_drush_list($module = NULL, $type_or_ns = NULL, $name = NULL) {
  *   TRUE on success, FALSE otherwise.
  */
 function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
-  // @todo allow export of all types or everything to module
-  if (!$name || !$type_or_ns || !$module) {
-    drush_log(dt('Not enough arguments.'), 'error');
+  if (!$module) {
+    drush_log(dt('Usage: drush cme --status=[code,db,overridden] module type [name]'), 'error');
     return FALSE;
   }
   $type = cmk_find_type($type_or_ns);
@@ -377,7 +376,7 @@ function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
     return FALSE;
   }
 
-  $exports = cmk_list();
+  $exports = cmk_list(NULL, $type, $name);
   cmk_drush_filter_by_status($exports);
 
   drush_print(dt('The following exportables have been found:'));
