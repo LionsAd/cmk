@@ -11,6 +11,10 @@
 function cmk_drush_command() {
   $items = array();
 
+  $options = array(
+    'status' => 'Comma separated list of statuses to filter by (e.g. code,db,overridden) or the short names c,d,o',
+  );
+
   $items['cmk-status'] = array(
     'aliases' => array('cms'),
     'callback' => 'cmk_drush_status',
@@ -30,7 +34,7 @@ function cmk_drush_command() {
       'type'      => 'Type of export, eg "views" or "page_manager/handlers"',
       'name'      => 'Name of the export.'
     ),
-    'options' => array(),
+    'options' => $options,
   );
 
   $items['cmk-export'] = array(
@@ -42,7 +46,7 @@ function cmk_drush_command() {
       'type'      => 'Type of export, eg "views/view" or "page_manager/handlers"',
       'name'      => 'Name of the export.'
     ),
-    'options' => array(),
+    'options' => $options,
   );
 
   $items['cmk-update'] = array(
@@ -54,7 +58,7 @@ function cmk_drush_command() {
       'type'      => 'Type of export, eg "views" or "page_manager/handlers"',
       'name'      => 'Name of the export.'
     ),
-    'options' => array(),
+    'options' => $options,
   );
 
   $items['cmk-revert'] = array(
@@ -66,7 +70,7 @@ function cmk_drush_command() {
       'type'      => 'Type of export, eg "views" or "page_manager/handlers"',
       'name'      => 'Name of the export.'
     ),
-    'options' => array(),
+    'options' => $options,
   );
 
   $items['cmk-convert-feature'] = array(
@@ -88,7 +92,7 @@ function cmk_drush_command() {
       'type'      => 'Type of export, eg "views" or "page_manager/handlers"',
       'name'      => 'Name of the export.'
     ),
-    'options' => array(),
+    'options' => $options,
   );
 
 
@@ -229,6 +233,53 @@ function cmk_drush_export_to_file($module, $type, $name) {
   drush_print(dt("Wrote @name to @path.", array('@name' => $name, '@path' => $path)));
 }
 
+/**
+ * Filters a list of exportables by status drush option.
+ *
+ * @param $list
+ *   The list of exports to filter.
+ */
+function cmk_drush_filter_by_status(&$list) {
+  $status_to_check = drush_get_option('status');
+  if (empty($status_to_check)) {
+    return;
+  }
+  $status_to_check = str_replace(array('code','db','overridden'), array('c','d','o'), $status_to_check);
+  $status_to_check = explode(',', $status_to_check);
+
+  foreach ($list as $type => $names) {
+    if (empty($names)) {
+      continue;
+    }
+
+    $export_statuses = cmk_export_status($type, array_keys($names));
+
+    foreach ($names as $name => $title) {
+      $export_status = isset($export_statuses[$name]) ?
+        $export_statuses[$name] :
+        array(
+          'status' => t('Undefined'),
+        );
+
+      if ($export_status['status'] == dt('Normal')) {
+        $status = 'd';
+      }
+      elseif ($export_status['status'] == dt('Default')) {
+        $status = 'c';
+      }
+      else {
+        $status = 'o';
+      }
+      if (!in_array($status, $status_to_check)) {
+        unset($list[$type][$name]);
+      }
+    }
+    if (empty($list[$type])) {
+      unset($list[$type]);
+    }
+  }
+}
+
 // -----------------------------------------------------------------------
 // Drush command callbacks.
 
@@ -286,6 +337,7 @@ function cmk_drush_list($module = NULL, $type_or_ns = NULL, $name = NULL) {
 
   drush_print(dt('Status of queried CMK exportables:'));
   $exportables = cmk_list($module, $type, $name);
+  cmk_drush_filter_by_status($exportables);
   cmk_drush_print_exportables_list($exportables);
 
   return TRUE;
@@ -326,6 +378,7 @@ function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
   }
 
   $exportables = cmk_list();
+  cmk_drush_filter_by_status($exportables);
   if (!isset($exportables[$type][$name])) {
     drush_log(dt('Unable to find exportable.'), 'error');
     return FALSE;
@@ -384,6 +437,7 @@ function cmk_drush_update($module = NULL, $type_or_ns = NULL, $name = NULL) {
 
   $module_name = cmk_drush_get_module_name($module);
   $exports = cmk_list($module, $type, $name, FALSE);
+  cmk_drush_filter_by_status($exports);
 
   drush_print(dt('The following exportables have been found:'));
   cmk_drush_print_exportables_list($exports);
@@ -441,6 +495,7 @@ function cmk_drush_revert($module = NULL, $type_or_ns = NULL, $name = NULL) {
 
   $module_name = cmk_drush_get_module_name($module);
   $exports = cmk_list($module, $type, $name, TRUE);
+  cmk_drush_filter_by_status($exports);
 
   drush_print(dt('The following exportables have been found:'));
   cmk_drush_print_exportables_list($exports);
@@ -604,6 +659,7 @@ function cmk_drush_remove($module = NULL, $type_or_ns = NULL, $name = NULL) {
 
   $module_name = cmk_drush_get_module_name($module);
   $exports = cmk_list($module, $type, $name);
+  cmk_drush_filter_by_status($exports);
 
   drush_print(dt('The following exportables have been found:'));
   cmk_drush_print_exportables_list($exports);
