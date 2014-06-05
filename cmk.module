@@ -19,6 +19,19 @@ function cmk_module_implements_alter(&$implementations, $hook) {
 }
 
 // -----------------------------------------------------------------------
+// Contrib Hooks
+/**
+ * Implements hook_cmk_exportable_owners_alter().
+ */
+function cmk_cmk_exportable_owners_alter(&$owners) {
+  // Strongarm is weird in that it provides a ctools export schema, but cannot
+  // be run from code, so fallback to features for variable table.
+  if (isset($owners['variable'])) {
+    $owners['variable'] = 'features';
+  }
+}
+
+// -----------------------------------------------------------------------
 // Public API Interface
 
 /**
@@ -207,7 +220,7 @@ function cmk_export_to_files($module, $type, $name) {
   $path = cmk_type_filepath($module, $type);
 
   // Get the exportable code for this type and name.
-  $code = cmk_export_to_code($type, $name);
+  $code = cmk_export_to_code($module, $type, $name);
 
   // Save the code and default hook code
   $files = array();
@@ -282,16 +295,18 @@ function cmk_export_status($type, $names = array()) {
 /**
  * Returns code to export to a file.
  *
- * @type string
+ * @param module string
+ *   Name of the module to export code to.
+ * @param type string
  *   Type of the exportable to export.
- * @name string
+ * @param name string
  *   Name of the exportable to export.
  *
  * @return array( 'default_hook' => $code );
  *   The exported code.
  */
-function cmk_export_to_code($type, $name) {
-  return cmk_delegate($type, 'cmk_export_to_code', $type, $name);
+function cmk_export_to_code($module, $type, $name) {
+  return cmk_delegate($type, 'cmk_export_to_code', $module, $type, $name);
 }
 
 /**

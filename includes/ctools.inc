@@ -55,7 +55,7 @@ function ctools_cmk_export_status($type, $names) {
 /**
  * Implements hook_cmk_export_to_code on behalf of ctools.
  */
-function ctools_cmk_export_to_code($type, $name) {
+function ctools_cmk_export_to_code($module, $type, $name) {
 
   $schema = ctools_export_get_schema($type);
   $identifier = $schema['export']['identifier'];

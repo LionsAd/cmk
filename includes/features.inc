@@ -51,7 +51,7 @@ function features_cmk_export_status($type, $names) {
 /**
  * Implements hook_cmk_export_to_code on behalf of features.
  */
-function features_cmk_export_to_code($type, $name) {
+function features_cmk_export_to_code($module, $type, $name) {
 
   global $features_ignore_conflicts;
   $features_ignore_conflicts = TRUE;
@@ -59,8 +59,9 @@ function features_cmk_export_to_code($type, $name) {
   module_load_include('inc', 'features', 'features.export');
   features_include();
 
-  // Features needs a module_name, but we just use 'cmk' as a catch-all here.
-  $module_name = 'cmk';
+  // Features needs a module_name, we need to use the right one, as else
+  // features just adds dependencies.
+  $module_name = $module;
 
   $data = array(
     $name,
