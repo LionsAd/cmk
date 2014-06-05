@@ -44,8 +44,19 @@ function features_cmk_type_info($type) {
  * Implements hook_cmk_export_status() on behalf of features.
  */
 function features_cmk_export_status($type, $names) {
-  // @todo Stub!
-  return array();
+  $exports = cmk_get_all_exports();
+  $export_states = array();
+
+  foreach ($names as $name) {
+    if (isset($exports[$type][$name])) {
+      // @todo Determine overridden state here.
+      $export_states[$name] = t('In code (undefined)');
+    } else {
+      $export_states[$name] = t('Normal');
+    }
+  }
+
+  return $export_states;
 }
 
 /**

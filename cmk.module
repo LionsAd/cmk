@@ -102,12 +102,55 @@ function cmk_get_exports($module, $filter_status = TRUE) {
   foreach (cmk_get_export_types($module, $filter_status) as $type => $state) {
     $path = cmk_type_filepath($module, $type);
     $cmk_exports = array_merge($cmk_exports, cmk_load_exports_from_file($path . '.php', 'cmk_exports'));
-    if ($filter_status) {
+    if ($filter_status && !empty($cmk_exports[$type])) {
       $cmk_exports[$type] = array_filter($cmk_exports[$type]);
     }
   }
 
   return $cmk_exports;
+}
+
+/**
+ * Returns all modules using CMK.
+ *
+ * @return array
+ *   The list of modules using CMK.
+ */
+function cmk_get_export_modules() {
+  $modules = &drupal_static(__FUNCTION__, array());
+
+  if (!empty($modules)) {
+    return $modules;
+  }
+
+  $module_data = system_rebuild_module_data();
+  foreach ($module_data as $name => $module) {
+    if (file_exists(dirname($module->filename) . '/' . $name . '.cmk.inc')) {
+      $modules[$name] = $name;
+    }
+  }
+  return $modules;
+}
+
+function cmk_get_all_exports() {
+  $all_exports = &drupal_static(__FUNCTION__, array());
+
+  if (!empty($all_exports)) {
+    return $all_exports;
+  }
+
+  $modules = cmk_get_export_modules();
+
+  foreach ($modules as $module) {
+    $exports = cmk_get_exports($module);
+    foreach ($exports as $type => $names) {
+      foreach ($names as $name => $status) {
+        $all_exports[$type][$name][$module] = $module;
+      }
+    }
+  }
+
+  return $all_exports;
 }
 
 /**
