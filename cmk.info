@@ -1,0 +1,7 @@
+name = Configuration Management Kit
+description = "Makes it possible to export configuration to code."
+package     = CTools
+core      = 7.x
+
+dependencies[] = ctools
+dependencies[] = features

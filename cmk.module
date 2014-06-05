@@ -1,0 +1,802 @@
+<?php
+
+require_once __DIR__ .  '/includes/features.inc';
+require_once __DIR__ . '/includes/ctools.inc';
+
+//------------------------------------------------------------------------
+// Core Hooks
+
+/**
+ * Implements hook_module_implements_alter().
+ */
+function cmk_module_implements_alter(&$implementations, $hook) {
+  // Put ctools last in the list so that ctools overriddes features hooks.
+  if ($hook == 'cmk_list') {
+    $group = $implementations['ctools'];
+    unset($implementations['ctools']);
+    $implementations['ctools'] = $group;
+  }
+}
+
+// -----------------------------------------------------------------------
+// Public API Interface
+
+/**
+ * Finds a type for a given type or namespace.
+ *
+ * @param string $type_or_ns
+ *   The type or namespace to check for.
+ *
+ * @return string|FALSE
+ *   The type if it was found, FALSE otherwise.
+ */
+function cmk_find_type($type_or_ns) {
+  // Detect if its a namespace.
+  if (strpos($type_or_ns, '/') !== FALSE) {
+    $namespaces = cmk_namespaces();
+    if (isset($namespaces[$type_or_ns])) {
+      return $namespaces[$type_or_ns];
+    }
+    return FALSE;
+  }
+
+  $exportables = cmk_exportables();
+  if (isset($exportables[$type_or_ns])) {
+    return $type_or_ns;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Returns export types exported to a module - optionally filtered by status.
+ *
+ * @param string $module
+ *   The module to retrieve exported types from.
+ * @param bool $filter_status
+ *   Whether to filter by the status of the export type or not.
+ *
+ * @return array
+ *   The exported export types.
+ */
+function cmk_get_export_types($module, $filter_status = TRUE) {
+  // @todo Add some static caching here.
+  $exports_path = cmk_exports_filepath($module);
+  $export_types = cmk_load_exports_from_file($exports_path . '/state.php', 'cmk_export_types');
+
+  if ($filter_status) {
+    return array_filter($export_types);
+  }
+
+  return $export_types;
+}
+
+/**
+ * Returns exports exported to a module - optionally filtered by status.
+ *
+ * @param string $module
+ *   The module to retrieve exports from.
+ * @param bool $filter_status
+ *   Whether to filter by the status of the export or not.
+ *
+ * @return array
+ *   The exported exports.
+ */
+function cmk_get_exports($module, $filter_status = TRUE) {
+  // @todo Add some static caching here.
+  $cmk_exports = array();
+
+  foreach (cmk_get_export_types($module, $filter_status) as $type => $state) {
+    $path = cmk_type_filepath($module, $type);
+    $cmk_exports = array_merge($cmk_exports, cmk_load_exports_from_file($path . '.php', 'cmk_exports'));
+    if ($filter_status) {
+      $cmk_exports[$type] = array_filter($cmk_exports[$type]);
+    }
+  }
+
+  return $cmk_exports;
+}
+
+/**
+ * Load exports for a given type from a given module.
+ *
+ * Note: It is possible to restrict the exports available
+ *       here by using cmk_restrict_exports().
+ *
+ * @see cmk_restrict_exports()
+ * @see cmk_restricted_exports()
+ *
+ * @param string $module
+ *   The name of the module to load exports from.
+ * @param string $type
+ *   The type of exportable to load.
+ * @param string $name
+ *   Name of exportable to load. (optional)
+ *
+ * @return array
+ *   The exports exported to the module.
+ */
+function cmk_load_exports($module, $type, $name = NULL) {
+  // @todo Make it possible to override this to re-export a disabled exportable.
+  $export_types = cmk_get_export_types($module);
+  if (!isset($export_types[$type])) {
+    return array();
+  }
+
+  $path = cmk_type_filepath($module, $type);
+
+  // Load export states
+  $cmk_exports = cmk_load_exports_from_file($path . '.php', 'cmk_exports');
+  if (empty($cmk_exports[$type])) {
+    return array();
+  }
+
+  _cmk_filter_list_by_name($cmk_exports, $name);
+
+  // Now filter by restricted exports.
+  $restricted_exports = cmk_restricted_exports();
+
+  if (isset($restricted_exports[$type])) {
+    $cmk_exports[$type] = array_intersect_key($cmk_exports[$type], $restricted_exports[$type]);
+  }
+
+  $exports = array();
+  foreach ($cmk_exports[$type] as $name => $state) {
+    // @todo Make it possible to override this to re-export a disabled exportable.
+    if (!empty($state)) {
+      $cmk_export = cmk_load_exports_from_file($path . '/' . $name . '.php', 'cmk_export');
+      $exports = array_merge($exports, $cmk_export);
+    }
+  }
+
+  return $exports;
+}
+
+/**
+ * Lists exportables in the system - optionally for a given module.
+ *
+ * @param null $module
+ *   The module to show exports for.
+ * @param null $type_or_ns
+ *   The type or namespace to filter the list by.
+ * @param null $name
+ *   The name of an exportable to filter the list by.
+ * @param bool $filter_status
+ *   Filters out disabled exports when TRUE.
+ *
+ * @return array
+ *   List of exportables in the system.
+ */
+function cmk_list($module = NULL, $type = NULL, $name = NULL, $filter_status = FALSE) {
+  $exportables = cmk_exportables();
+
+  if (!empty($module) && module_exists($module)) {
+    $exports = cmk_get_exports($module, $filter_status);
+    $exportables = _cmk_merge_exports($exports, $exportables);
+  }
+  _cmk_filter_list_by_type($exportables, $type);
+  _cmk_filter_list_by_name($exportables, $name);
+
+  return $exportables;
+}
+
+/**
+ * Exports an exportable to a files array.
+ *
+ * This returns a whole array of files, because there are different types of
+ * exports generated:
+ *
+ * - The $type/$name.php exportable code.
+ * - The $type.php exports file.
+ * - The $type.default_hook.php hook_default_${name} file.
+ * - The $state.php file containing all export types.
+ * - The $module.cmk.inc file.
+ *
+ * @param string $module
+ *   The module to export the files to.
+ * @param string $type
+ *   The type of exportable to export.
+ * @param string $name
+ *   The name of exportable to export.
+ *
+ * @return array
+ *   An array keyed by filename with the file contents as values.
+ */
+function cmk_export_to_files($module, $type, $name) {
+  $exports_path = cmk_exports_filepath($module);
+  $path = cmk_type_filepath($module, $type);
+
+  // Get the exportable code for this type and name.
+  $code = cmk_export_to_code($type, $name);
+
+  // Save the code and default hook code
+  $files = array();
+  $files[$path . '/' . $name . '.php'] = "<?php\n" . current($code);
+  $files[$path . '.default_hook.php'] = cmk_export_cmk_default_hooks(current(array_keys($code)), $module, $type);
+
+  // Load export states
+  $cmk_exports = cmk_load_exports_from_file($path . '.php', 'cmk_exports');
+
+  // Do not overwrite the state here, but add if it does not yet exist.
+  if (!isset($cmk_exports[$type][$name])) {
+    $cmk_exports[$type][$name] = TRUE;
+  }
+
+  $files[$path . '.php'] = cmk_export_cmk_export_states($cmk_exports);
+
+  // This file is only used to enable / disable full export types.
+
+  // Load export type states.
+  $cmk_export_types = cmk_load_exports_from_file($exports_path . '/state.php', 'cmk_export_types');
+
+  // Do not overwrite the state here, but add if it does not yet exist.
+  if (!isset($cmk_export_types[$type])) {
+    $cmk_export_types[$type] = TRUE;
+  }
+
+  $files[$exports_path . '/state.php'] = cmk_export_cmk_export_type_states($cmk_export_types);
+
+  // Export CMK include file.
+  $files[drupal_get_path('module', $module) . '/' . $module . '.cmk.inc'] = cmk_export_cmk_hooks(array_keys($cmk_export_types), $module);
+
+  return $files;
+}
+
+// -----------------------------------------------------------------------
+// Delegated CMK API - this is public, too.
+
+/**
+ * Give back information about an exportable type.
+ *
+ * @todo Create a common return format, because at the moment different "owners"
+ *       provide different formats for this.
+ *
+ * Currently the only guaranteed and supported key in the returned array is
+ * 'module'.
+ *
+ * @param string $type
+ *   The type to retrieve information about.
+ *
+ * @return string
+ *   The CMK type information.
+ */
+function cmk_type_info($type) {
+  return cmk_delegate($type, 'cmk_type_info', $type);
+}
+
+/**
+ * Gets the export status of one or more exportables.
+ *
+ * @param string $type
+ *   The type of the exportable.
+ * @param string[] $names
+ *   The names of one or more exportables.
+ *
+ * @return array
+ *   An array keyed by name with the status values.
+ */
+function cmk_export_status($type, $names = array()) {
+  return cmk_delegate($type, 'cmk_export_status', $type, $names);
+}
+
+/**
+ * Returns code to export to a file.
+ *
+ * @type string
+ *   Type of the exportable to export.
+ * @name string
+ *   Name of the exportable to export.
+ *
+ * @return array( 'default_hook' => $code );
+ *   The exported code.
+ */
+function cmk_export_to_code($type, $name) {
+  return cmk_delegate($type, 'cmk_export_to_code', $type, $name);
+}
+
+/**
+ * Revert one or more exportables.
+ *
+ * @param string $module
+ *   The module to revert components from.
+ * @param string $type
+ *   The type of exportable to revert.
+ * @param string[] $names
+ *   The names of exportable to revert.
+ */
+function cmk_revert($module, $type = NULL, $names = array()) {
+  // No need to list if we have all parameters.
+  if (!empty($names) && is_array($names)) {
+    cmk_delegate($type, 'cmk_revert', $module, $type, $names);
+    return;
+  }
+
+  $exports = cmk_list($module, $type, $names, TRUE);
+
+  foreach ($exports as $type => $names) {
+    if (empty($names)) {
+      continue;
+    }
+    cmk_delegate($type, 'cmk_revert', $module, $type, array_keys($names));
+  }
+}
+
+/**
+ * Returns the filepath to the exports directory for a given module.
+ *
+ * @param string $module
+ *   The module to return filepath for.
+ *
+ * @return string
+ *   The path to the exports directory for the module.
+ */
+function cmk_exports_filepath($module) {
+  $path = drupal_get_path('module', $module) . '/exports';
+
+  if (!file_exists($path)) {
+    drupal_mkdir(DRUPAL_ROOT . '/' . $path, NULL, TRUE);
+  }
+
+  return $path;
+}
+
+/**
+ * Returns the filepath to the <type> directory for a given module.
+ *
+ * e.g. exports/views/view/ or exports/field_group/field_group
+ *
+ * @param string $module
+ *   The module to return the type filepath for.
+ *
+ * @param string $type
+ *   The type to retrieve the directory for.
+ *
+ * @return string
+ *   The path to the 'type' directory for the module.
+ */
+function cmk_type_filepath($module, $type) {
+  $reverse_namespaces = cmk_reverse_namespaces();
+  $namespace = $reverse_namespaces[$type];
+
+  $path = cmk_exports_filepath($module) . '/' . $namespace;
+  if (!file_exists($path)) {
+    drupal_mkdir(DRUPAL_ROOT . '/' . $path, NULL, TRUE);
+  }
+
+  return $path;
+}
+
+/**
+ * Loads exports via $var_name from a file.
+ *
+ * @param string $file
+ *   The file to source.
+ * @param $var_name
+ *   The dynamic variable name to search for.
+ *
+ * @return array
+ *   The fully populated exports array for this file.
+ */
+function cmk_load_exports_from_file($file, $var_name) {
+  // Use indirection
+  $$var_name = array();
+
+  // Does not use file_exists to prevent I/O.
+  @include $file;
+
+  if (!empty($$var_name)) {
+    return $$var_name;
+  }
+
+  return array();
+}
+
+/**
+ * Export the cmk_export states array to code.
+ *
+ * This is used instead of var_export, to create
+ * a nicer array syntax.
+ *
+ * @param array $cmk_exports
+ *   The given array keyed by type,name with the state values.
+ *
+ * @return string
+ *   The exported cmk_exports state array to code.
+ */
+function cmk_export_cmk_export_states($cmk_exports) {
+
+  // Sort alphabetically to decrease conflicts.
+  ksort($cmk_exports);
+
+  $output = "<?php\n";
+  foreach ($cmk_exports as $type => $names) {
+
+    // Sort alphabetically to decrease conflicts.
+    ksort($cmk_exports[$type]);
+    ksort($names);
+
+    foreach ($names as $name => $status) {
+      $output .= '$' . "cmk_exports['$type']['$name'] = " . ($status ? 'TRUE' : 'FALSE') . ";\n";
+    }
+  }
+
+  return $output;
+}
+
+/**
+ * Export the cmk_export_types states array to code.
+ *
+ * This is used instead of var_export, to create
+ * a nicer array syntax.
+ *
+ * @param array $cmk_export_types
+ *   The given array keyed by type with the state values.
+ *
+ * @return string
+ *   The exported cmk_export_types state array to code.
+ */
+function cmk_export_cmk_export_type_states(&$cmk_export_types) {
+
+  // Sort alphabetically to decrease conflicts.
+  ksort($cmk_export_types);
+
+  $output = "<?php\n";
+  foreach ($cmk_export_types as $type => $status) {
+    $output .= '$' . "cmk_export_types['$type'] = " . ($status ? 'TRUE' : 'FALSE') . ";\n";
+  }
+
+  return $output;
+}
+
+/**
+ * Export the default hook of a type to code.
+ *
+ * e.g. hook_views_default_views().
+ *
+ * @param $default_hook
+ *   The default hook to use.
+ * @param $module
+ *   The module to implement the hook.
+ * @param $type
+ *   The type to implement the hook for.
+ *
+ * @return string
+ *   The exported default hook to code.
+ */
+function cmk_export_cmk_default_hooks($default_hook, $module, $type) {
+
+  // @todo Need some special cases for features having arguments for the default hook.
+  $output = <<<EOF
+<?php
+
+/**
+ * Implements hook_${default_hook}().
+ */
+function ${module}_${default_hook}() {
+  return cmk_load_exports('$module', '$type');
+}
+
+EOF;
+
+  return $output;
+}
+
+/**
+ * Include all type hooks and loads generic default hooks that would conflict.
+ *
+ * e.g. hook_ctools_api().
+ *
+ * @param array $cmk_exports
+ *   All exports of the module.
+ * @param string $module
+ *   The module to implement the hooks and include the export default_hooks.
+ *
+ * @return string
+ *   The code of the <module>.cmk.inc file.
+ */
+function cmk_export_cmk_hooks($cmk_exports, $module) {
+  $output = "<?php\n";
+  $reverse_namespaces = cmk_reverse_namespaces();
+  // Require_once the default API files
+  foreach ($cmk_exports as $type) {
+    $namespace = $reverse_namespaces[$type];
+    $output .= <<<EOF
+
+// Include default hooks for $type.
+require_once __DIR__ . "/exports/{$namespace}.default_hook.php";
+
+EOF;
+  }
+
+  // @todo Do not rely on features here.
+  module_load_include('inc', 'features', 'features.export');
+  features_include();
+  $codes = ctools_features_export_render($module, $cmk_exports);
+
+  foreach ($codes as $default_hook => $code) {
+    $args = isset($code['args']) ? $code['args'] : '';
+    $code_output = isset($code['code']) ? $code['code'] : '';
+
+    $output .= <<<EOF
+
+/**
+ * Implements hook_${default_hook}().
+ */
+function ${module}_${default_hook}($args) {
+$code_output
+}
+
+EOF;
+  }
+
+  return $output;
+}
+
+/**
+ * Delegate a hook to a module owning a certain type.
+ *
+ * The main purpose of this is that "ctools" exportables can be directly im-
+ * and exported - without having to fallback to features.
+ *
+ * @param $type
+ *   The type to delegate.
+ * @param $hook
+ *   The hook to execute.
+ *
+ * @return mixed
+ *   The output of the delegated hook.
+ */
+function cmk_delegate($type, $hook) {
+  $owners = cmk_exportable_owners();
+
+  if (!isset($owners[$type])) {
+    return;
+  }
+
+  $args = func_get_args();
+  // Replace the type with the owning module.
+  $args[0] = $owners[$type];
+
+  return call_user_func_array('module_invoke', $args);
+}
+
+/**
+ * Updates all exportables in the system.
+ *
+ * This calls cmk_list and the respective alter functions to discover
+ * exportables that are available in the system.
+ *
+ * @return array
+ *   All available exportables.
+ */
+function cmk_update_exportables() {
+  $exportables = & drupal_static('cmk_exportables', array());
+
+  if (!empty($exportables)) {
+    return $exportables;
+  }
+
+  $export_types = & drupal_static('cmk_export_types', array());
+  $namespaces = & drupal_static('cmk_namespaces', array());
+
+  // An array of owning modules keyed by export type.
+  $owners = & drupal_static('cmk_exportable_owners', array());
+
+  // Invoke each module to save the owner for a component.
+
+  foreach (module_implements('cmk_list') as $module) {
+    $owned_exportables = module_invoke($module, 'cmk_list');
+    $owners = array_merge($owners, array_fill_keys(array_keys($owned_exportables), $module));
+    $exportables = array_merge($exportables, $owned_exportables);
+  }
+  drupal_alter('cmk_list', $exportables);
+  drupal_alter('cmk_exportable_owners', $owners);
+
+  foreach ($exportables as $type => $exportable) {
+    // @todo This is slow and unnecessary.
+    $type_info = cmk_type_info($type);
+    $export_types[$type] = $type_info['module'];
+
+    // Create a nicer namespace.
+    $module = $type_info['module'];
+    $name = str_replace($module . '_', '', $type);
+    $namespaces["$module/$name"] = $type;
+  }
+}
+
+/**
+ * Lists all exportables in the system.
+ *
+ * @return array
+ *   All available exportables.
+ */
+function cmk_exportables() {
+  cmk_update_exportables();
+
+  return drupal_static('cmk_exportables', array());
+}
+
+/**
+ * Lists all export types and modules in the system.
+ *
+ * @return array
+ *   An array keyed by all available export types with the module as value.
+ */
+function cmk_export_types() {
+  cmk_update_exportables();
+
+  return drupal_static('cmk_export_types', array());
+}
+
+/**
+ * Gets all owning modules of exportables.
+ *
+ * @see cmk_delegate().
+ *
+ * @return array
+ *   List of exportable owners keyed by type.
+ */
+function cmk_exportable_owners() {
+  cmk_update_exportables();
+
+  return drupal_static('cmk_exportable_owners', array());
+}
+
+/**
+ * Retrieve namespaces mapping for the types.
+ *
+ * Namespaces are used to transform e.g.
+ * view -> views/view, which makes it possible
+ * to also show a human readable name for them.
+ *
+ * @return array
+ *   An array keyed by namespace with the type as value.
+ */
+function cmk_namespaces() {
+  cmk_update_exportables();
+
+  return drupal_static('cmk_namespaces', array());
+}
+
+/**
+ * Retrieve the reverse namespaces mapping.
+ *
+ * @see cmk_namespaces().
+ *
+ * @return array
+ *   An array keyed by type with the namespace as value.
+ */
+function cmk_reverse_namespaces() {
+  cmk_update_exportables();
+
+  return array_flip(drupal_static('cmk_namespaces', array()));
+}
+
+// -----------------------------------------------------------------------
+// Revert helper functions.
+
+/**
+ * Retrieve restricted exports.
+ *
+ * @return array
+ *   Returns list of currently restricted exports ((type, name) => state).
+ */
+function cmk_restricted_exports() {
+  return drupal_static('cmk_restricted_exports', array());
+}
+
+/**
+ * Temporarily restrict exports for a certain type.
+ *
+ * Note: This is not the same as disabled exports,
+ *       which can still be retrieved.
+ *
+ * This is especially useful for features, which can only revert
+ * a whole group of exports by default.
+ *
+ * @param string $type
+ *   The type to restrict exports for.
+ * @param array $names
+ *   The names of exports to restrict.
+ */
+function cmk_restrict_exports($type, $names) {
+  $cmk_restricted_exports = & drupal_static('cmk_restricted_exports', array());
+
+  if (empty($names) || !is_array($names)) {
+    return;
+  }
+  foreach ($names as $name) {
+    $cmk_restricted_exports[$type][$name] = TRUE;
+  }
+}
+
+/**
+ * Allow all exports again for a type.
+ *
+ * @param string $type
+ *   The type to allow exports for again.
+ */
+function cmk_allow_exports($type) {
+  $cmk_restricted_exports = & drupal_static('cmk_restricted_exports', array());
+  unset($cmk_restricted_exports[$type]);
+}
+
+// -----------------------------------------------------------------------
+// Private API functions
+
+/**
+ * Merges to export lists together and restricts the second list by the first.
+ *
+ * @param array $exports
+ *   The exports present e.g. in a module.
+ * @param array $exportables
+ *   All available exportables.
+ *
+ * @return array
+ *   The filtered exportables.
+ */
+function _cmk_merge_exports($exports, $exportables) {
+  $new_exportables = array();
+
+  // Restrict to those exports present in the module.
+  foreach ($exports as $type => $names) {
+    foreach ($names as $name => $state) {
+      // @todo check orphaned exports?
+      if (!empty($exportables[$type][$name])) {
+        $new_exportables[$type][$name] = $exportables[$type][$name];
+      }
+      else {
+        $new_exportables[$type][$name] = t('Not imported: ' . $name);
+      }
+    }
+  }
+
+  return $new_exportables;
+}
+
+/**
+ * Filters a list of given exportables by type.
+ *
+ * @param array $exportables
+ *   The list of exportables to filter.
+ * @param string $type
+ *   The type to filter by.
+ *
+ * @return array
+ *   The filtered list.
+ */
+function _cmk_filter_list_by_type(&$exportables, $type) {
+  if (!empty($type)) {
+    $exportables = array_intersect_key($exportables, array($type => TRUE));
+  }
+}
+
+/**
+ * Filters a list of given exportables by name.
+ *
+ * @param array $exportables
+ *   The list of exportables to filter.
+ * @param string $name
+ *   The name to filter by.
+ *
+ * @return array
+ *   The filtered list.
+ */
+function _cmk_filter_list_by_name(&$exportables, $name) {
+  if (!empty($name)) {
+    $found = FALSE;
+    foreach ($exportables as $type => $exports) {
+      if (isset($exportables[$type][$name])) {
+        $found = TRUE;
+        $exportables = array(
+          $type => array(
+            $name => $exportables[$type][$name],
+          ),
+        );
+      }
+    }
+    if (!$found) {
+      $exportables = array();
+    }
+  }
+}
