@@ -13,6 +13,7 @@ function cmk_drush_command() {
 
   $options = array(
     'status' => 'Comma separated list of statuses to filter by (e.g. code,db,overridden) or the short names c,d,o',
+    'passive' => '1 or 0, default is 0.',
   );
 
   $items['cmk-status'] = array(
@@ -222,8 +223,8 @@ function cmk_drush_print_exportables_list($list) {
  * @param string $name
  *   The name of the exportable to export.
  */
-function cmk_drush_export_to_file($module, $type, $name) {
-  $files = cmk_export_to_files($module, $type, $name);
+function cmk_drush_export_to_file($module, $type, $name, $initial_state = TRUE) {
+  $files = cmk_export_to_files($module, $type, $name, $initial_state);
 
   $path = current(array_keys($files));
   foreach ($files as $filename => $output) {
@@ -363,11 +364,15 @@ function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
     drush_log(dt('Usage: drush cme --status=[code,db,overridden] module type [name]'), 'error');
     return FALSE;
   }
-  $type = cmk_find_type($type_or_ns);
 
-  if (empty($type)) {
-    drush_log(dt('Unable to find export type.'), 'error');
-    return FALSE;
+  $type = NULL;
+  if (!empty($type_or_ns)) {
+    $type = cmk_find_type($type_or_ns);
+
+    if (empty($type)) {
+      drush_log(dt('Unable to find export type.'), 'error');
+      return FALSE;
+    }
   }
 
   // @todo allow creation of a module
@@ -381,6 +386,8 @@ function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
 
   drush_print(dt('The following exportables have been found:'));
   cmk_drush_print_exportables_list($exports);
+
+  $passive = drush_get_option('passive') == "1";
 
   // @todo allow disabled modules.
   $module_name = cmk_drush_get_module_name($module);
@@ -397,10 +404,12 @@ function cmk_drush_export($module = NULL, $type_or_ns = NULL, $name = NULL) {
     }
     // This is slow, but works well.
     foreach ($names as $name => $description) {
-      cmk_drush_export_to_file($module, $type, $name);
+      cmk_drush_export_to_file($module, $type, $name, !$passive);
     }
-    // @todo Use something different here that just removes from the DB?
-    cmk_revert($module, $type, array_keys($names));
+    if (!$passive) {
+      // @todo Use something different here that just removes from the DB?
+      cmk_revert($module, $type, array_keys($names));
+    }
   }
 
   drush_print(dt('All exportables have been exported and reverted. You may need to clear cache now.'));
@@ -442,6 +451,8 @@ function cmk_drush_update($module = NULL, $type_or_ns = NULL, $name = NULL) {
   $exports = cmk_list($module, $type, $name, FALSE);
   cmk_drush_filter_by_status($exports);
 
+  $passive = drush_get_option('passive') == "1";
+
   drush_print(dt('The following exportables have been found:'));
   cmk_drush_print_exportables_list($exports);
 
@@ -457,10 +468,12 @@ function cmk_drush_update($module = NULL, $type_or_ns = NULL, $name = NULL) {
     }
 
     foreach ($names as $name => $title) {
-      cmk_drush_export_to_file($module, $type, $name);
+      cmk_drush_export_to_file($module, $type, $name, !$passive);
     }
-    // @todo Use something different here that just removes from the DB?
-    cmk_revert($module, $type, array_keys($names));
+    if (!$passive) {
+      // @todo Use something different here that just removes from the DB?
+      cmk_revert($module, $type, array_keys($names));
+    }
   }
   drush_print(dt('All exportables have been re-exported and reverted. You may need to clear cache now.'));
 }
@@ -515,7 +528,7 @@ function cmk_drush_revert($module = NULL, $type_or_ns = NULL, $name = NULL) {
 }
 
 /**
- * Convert a feature to CMK. 
+ * Convert a feature to CMK.
  *
  * @param string $module
  *   The feature module to convert.
@@ -572,7 +585,7 @@ function cmk_drush_convert_feature($module = NULL) {
   }
 
   // @todo un-featurize the module
-  $directory = dirname($feature->uri); 
+  $directory = dirname($feature->uri);
   $info = $feature->info;
 
   // First remove all export files.
@@ -603,10 +616,10 @@ function cmk_drush_convert_feature($module = NULL) {
   // Remove features from .info file.
   $files['info'] = preg_replace("/^package = .*$/m", 'package = CMK', $files['info']);
   $files['info'] = preg_replace("/^features.*$(?:\r\n|\n)?/m", '', $files['info']);
- 
-  // Require CMK instead of Features include file. 
+
+  // Require CMK instead of Features include file.
   $files['module'] = preg_replace("/^include_once '$module.features.inc';$(?:\r\n|\n)?/m", "require_once __DIR__ . '/$module.cmk.inc';", $files['module']);
-  
+
   if (strstr($files['module'], "<?php") === FALSE) {
     $files['module'] = "<?php\n";
   }

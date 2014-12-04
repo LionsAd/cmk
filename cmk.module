@@ -264,7 +264,7 @@ function cmk_list($module = NULL, $type = NULL, $name = NULL, $filter_status = F
  * @return array
  *   An array keyed by filename with the file contents as values.
  */
-function cmk_export_to_files($module, $type, $name) {
+function cmk_export_to_files($module, $type, $name, $initial_state = TRUE) {
   $exports_path = cmk_exports_filepath($module);
   $path = cmk_type_filepath($module, $type);
 
@@ -281,7 +281,7 @@ function cmk_export_to_files($module, $type, $name) {
 
   // Do not overwrite the state here, but add if it does not yet exist.
   if (!isset($cmk_exports[$type][$name])) {
-    $cmk_exports[$type][$name] = TRUE;
+    $cmk_exports[$type][$name] = $initial_state;
   }
 
   $files[$path . '.php'] = cmk_export_cmk_export_states($cmk_exports);
@@ -293,7 +293,7 @@ function cmk_export_to_files($module, $type, $name) {
 
   // Do not overwrite the state here, but add if it does not yet exist.
   if (!isset($cmk_export_types[$type])) {
-    $cmk_export_types[$type] = TRUE;
+    $cmk_export_types[$type] = $initial_state;
   }
 
   $files[$exports_path . '/state.php'] = cmk_export_cmk_export_type_states($cmk_export_types);
